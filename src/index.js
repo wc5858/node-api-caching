@@ -1,6 +1,43 @@
 const http = require('http')
 const url = require('url')
 
+const config = require('./config')
+const Caching = require('./caching')
+
+let callApi = (request, response) => {
+  let url = request.url
+  if (Caching.checkRecord(url)) {
+    const req = http.request(
+      {
+        host: config.settings.host,
+        path: url,
+        headers: request.headers,
+        method: request.method,
+      },
+      res => {
+        response.writeHead(res.statusCode, res.headers)
+        res.setEncoding('utf8')
+        var body = ''
+        res.on('data', chunk => {
+          body += chunk
+        })
+        res.on('end', () => {
+          Caching.writeCache(url, body,res)
+          response.write(body)
+          response.end()
+        })
+      },
+    )
+    req.on('error', e => {
+      console.error(`请求遇到问题：${e.message}，使用缓存数据`)
+      Caching.readCache(url, response)
+    })
+    req.end()
+  } else {
+    Caching.readCache(url, response)
+  }
+}
+
 http
   .createServer(function(request, response) {
     let path = url.parse(request.url).pathname
@@ -14,32 +51,7 @@ http
       })
       response.end()
     } else {
-      const req = http.request(
-        {
-          host: 'api.ethfrog.local',
-          path: request.url,
-          headers: request.headers,
-          method: request.method,
-        },
-        res => {
-          response.writeHead(res.statusCode, res.headers)
-          res.setEncoding('utf8')
-          var body = ''
-          res.on('data', chunk => {
-            body += chunk
-          })
-          res.on('end', () => {
-            response.write(body)
-            response.end()
-          })
-        },
-      )
-      req.on('error', e => {
-        console.error(`请求遇到问题: ${e.message}`)
-        response.end()
-      })
-      req.end()
-      
+      callApi(request, response)
     }
   })
-  .listen(8777)
+  .listen(config.settings.port)
